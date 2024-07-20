@@ -36,15 +36,21 @@ from time import mktime
 import _thread as thread
 import pyaudio
 import numpy as np
+from sparkai.llm.llm import ChatSparkLLM, ChunkPrintHandler
+from sparkai.core.messages import ChatMessage
 
 STATUS_FIRST_FRAME = 0  # 第一帧的标识
 STATUS_CONTINUE_FRAME = 1  # 中间帧标识
 STATUS_LAST_FRAME = 2  # 最后一帧的标识
 
+#星火认知大模型Spark Max的URL值，其他版本大模型URL值请前往文档（https://www.xfyun.cn/doc/spark/Web.html）查看
+SPARKAI_URL = 'wss://spark-api.xf-yun.com/v3.5/chat'
 #星火认知大模型调用秘钥信息，请前往讯飞开放平台控制台（https://console.xfyun.cn/services/bm35）查看
 SPARKAI_APP_ID = 'f6282405'
 SPARKAI_API_SECRET = 'MDgzM2MxOTE4MTg2OTJmYjk1ODI4Nzgx'
 SPARKAI_API_KEY = '4e3ef72816c90cefb2e3772dff82052a'
+#星火认知大模型Spark Max的domain值，其他版本大模型domain值请前往文档（https://www.xfyun.cn/doc/spark/Web.html）查看
+SPARKAI_DOMAIN = 'generalv3.5'
 
 finally_result = ""
 
@@ -232,6 +238,25 @@ def Monitor_MIC(th, filename, rate=16000):
         with open(PCM_OUTPUT_FILENAME, 'wb') as f:
             f.write(b''.join(frames2))
 
+def AI_responder():
+    spark = ChatSparkLLM(
+        spark_api_url=SPARKAI_URL,
+        spark_app_id=SPARKAI_APP_ID,
+        spark_api_key=SPARKAI_API_KEY,
+        spark_api_secret=SPARKAI_API_SECRET,
+        spark_llm_domain=SPARKAI_DOMAIN,
+        streaming=False,
+    )
+    messages = [ChatMessage(
+        role="user",
+        content=finally_result
+    )]
+    handler = ChunkPrintHandler()
+    a = spark.generate([messages], callbacks=[handler])
+    # print("Raw Data", a)
+    text = a.generations[0][0].text
+    return text
+
 if __name__ == "__main__":
     # 测试时候在此处正确填写相关信息即可运行
     while 1:
@@ -247,4 +272,6 @@ if __name__ == "__main__":
         ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
         time2 = datetime.now()
         print("finally_result",finally_result)
+        answer = AI_responder()
+        print("answer",answer)
         print(time2-time1)
