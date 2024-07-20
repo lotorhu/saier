@@ -41,6 +41,7 @@ import wave
 from sparkai.llm.llm import ChatSparkLLM, ChunkPrintHandler
 from sparkai.core.messages import ChatMessage
 import pandas as pd
+import subprocess
 
 STATUS_FIRST_FRAME = 0  # 第一帧的标识
 STATUS_CONTINUE_FRAME = 1  # 中间帧标识
@@ -422,6 +423,17 @@ def delete_files(directory):
         if os.path.isfile(file_path):
             os.remove(file_path)
 
+def monitor():
+    result = subprocess.run(['python', '.\streaming_server\\test_client.py'])
+    
+    # 检查被调用程序的返回码
+    if result.returncode == 0:
+        print("Called program executed successfully.")
+    else:
+        print("Called program failed with return code:", result.returncode)
+    
+    print("Main program continues.")
+
 if __name__ == "__main__":
     index = 0
     # 测试时候在此处正确填写相关信息即可运行
@@ -470,7 +482,7 @@ if __name__ == "__main__":
             log_file.write("text_to_speech takes " + str(time2-time1) + "\n")
             log_file.write("Generate answer.wav" + "\n\n")
         print("#########  Over ##########")
-        
+        monitor()
         os.remove(AI_answer_pcm)
         os.remove("output.pcm")
 
