@@ -40,6 +40,7 @@ import numpy as np
 import wave
 from sparkai.llm.llm import ChatSparkLLM, ChunkPrintHandler
 from sparkai.core.messages import ChatMessage
+import pandas as pd
 
 STATUS_FIRST_FRAME = 0  # 第一帧的标识
 STATUS_CONTINUE_FRAME = 1  # 中间帧标识
@@ -56,6 +57,27 @@ SPARKAI_DOMAIN = 'generalv3.5'
 
 finally_result = ""
 AI_answer_pcm = './answer.pcm'
+
+log_name = './log/' + datetime.now().strftime('%Y_%m_%d_%H_%M') + '.log'
+
+def read_excel_and_print_columns(file_path, match_number):
+    # Read the Excel file
+    df = pd.read_excel(file_path, engine='openpyxl')
+    
+    with open(log_name, 'a', encoding='utf-8') as log_file:
+        # Iterate over each row in the DataFrame
+        for index, row in df.iterrows():
+            # Check if the first column matches the given number
+            if row[0] == match_number:
+                # Get the current timestamp
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                # Write the log entries with timestamp
+                log_file.write(f"{timestamp} - File: {file_path}\n")
+                log_file.write(f"{timestamp} - Row: {index + 1}\n")
+                log_file.write(f"{timestamp} - 错误描述: {row[1]}\n")
+                log_file.write(f"{timestamp} - 说明: {row[2]}\n")
+                log_file.write(f"{timestamp} - 处理方式: {row[3]}\n")
+                log_file.write("\n")  # Add a newline for better readability between entries
 
 # This function is used to transfer .pcm to .wav
 # param: channels 信道数 bits 采样位 sample_rate 采样率
@@ -142,6 +164,7 @@ def text_to_speech_on_message(ws, message):
         if code != 0:
             errMsg = message["message"]
             print("sid:%s call error:%s code is:%s" % (sid, errMsg, code))
+            log('text_to_speech',code)
         else:
 
             with open(AI_answer_pcm, 'ab') as f:
@@ -165,11 +188,11 @@ def text_to_speech_on_close(ws,a,b):
 # 收到websocket连接建立的处理
 def text_to_speech_on_open(ws):
     def run(*args):
-        d = {"common": text_to_speech.CommonArgs,
-             "business": text_to_speech.BusinessArgs,
-             "data": text_to_speech.Data,
+        d = {"common": t2s.CommonArgs,
+             "business": t2s.BusinessArgs,
+             "data": t2s.Data,
              }
-       # print("text_to_speech.Data", text_to_speech.Data)
+       # print("t2s.Data", t2s.Data)
         d = json.dumps(d)
         print("------>开始发送文本数据")
         ws.send(d)
@@ -234,6 +257,7 @@ def speech_to_text_on_message(ws, message):
         if code != 0:
             errMsg = json.loads(message)["message"]
             print("sid:%s call error:%s code is:%s" % (sid, errMsg, code))
+            log('speech_to_text',code)
 
         else:
             data = json.loads(message)["data"]["result"]["ws"]
@@ -264,7 +288,7 @@ def speech_to_text_on_open(ws):
         intervel = 0.04  # 发送音频间隔(单位:s)
         status = STATUS_FIRST_FRAME  # 音频的状态信息，标识音频是第一帧，还是中间帧、最后一帧
 
-        with open(speech_to_text.AudioFile, "rb") as fp:
+        with open(s2t.AudioFile, "rb") as fp:
             while True:
                 buf = fp.read(frameSize)
                 # 文件结束
@@ -275,8 +299,8 @@ def speech_to_text_on_open(ws):
                 # appid 必须带上，只需第一帧发送
                 if status == STATUS_FIRST_FRAME:
 
-                    d = {"common": speech_to_text.CommonArgs,
-                         "business": speech_to_text.BusinessArgs,
+                    d = {"common": s2t.CommonArgs,
+                         "business": s2t.BusinessArgs,
                          "data": {"status": 0, "format": "audio/L16;rate=16000",
                                   "audio": str(base64.b64encode(buf), 'utf-8'),
                                   "encoding": "raw"}}
@@ -384,43 +408,71 @@ def AI_responder():
     text = a.generations[0][0].text
     return text
 
+# model: speech_to_text, text_to_speech
+def log(model, error_code):
+    # Example usage
+    file_path = model+'.xlsx'  # Replace with the path to your Excel file
+    #match_number = 123  # Replace with the number you want to match in the first column
+    read_excel_and_print_columns(file_path, error_code)
+
+def delete_files(directory):
+    file_list = os.listdir(directory)
+    for file in file_list:
+        file_path = os.path.join(directory, file)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+
 if __name__ == "__main__":
+    index = 0
     # 测试时候在此处正确填写相关信息即可运行
     while 1:
+        index += 1
+        time2 = datetime.now()
         print("######### Say Someting! #########")
-        time1 = datetime.now()
+        
         Monitor_MIC(th=1000, filename="output", stopBit=3, rate=16000)
-        speech_to_text = speech_to_text(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
+        time1 = datetime.now()
+        with open(log_name, 'a', encoding='utf-8') as log_file:
+            log_file.write("Index"+ str(index) + "\n")
+            log_file.write("Monitor_MIC takes"+ str(time1-time2) + "\n")
+
+        s2t = speech_to_text(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
                             APIKey=SPARKAI_API_KEY,
                             AudioFile=r'output.pcm')
         websocket.enableTrace(False)
-        wsUrl = speech_to_text.create_url()
+        wsUrl = s2t.create_url()
         ws = websocket.WebSocketApp(wsUrl, on_message = speech_to_text_on_message, on_error = speech_to_text_on_error, on_close = speech_to_text_on_close)
         ws.on_open = speech_to_text_on_open
         ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
         time2 = datetime.now()
-        print("audio to text(s):", time2-time1)
-        print("finally_result",finally_result)
+        with open(log_name, 'a', encoding='utf-8') as log_file:
+            log_file.write("speech_to_text takes " + str(time2-time1) + "\n")
+            log_file.write("[finally_result] "+ str(finally_result) + "\n")
 
         answer = AI_responder()
         time1 = datetime.now()
-        print("AI respond(s):", time1-time2)
-        print("answer",answer)
+        with open(log_name, 'a', encoding='utf-8') as log_file:
+            log_file.write("AI_responder takes " + str(time1-time2) + "\n")
+            log_file.write("[answer] "+ str(answer) + "\n")
 
-        text_to_speech = text_to_speech(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
+        t2s = text_to_speech(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
                        APIKey=SPARKAI_API_KEY,
                        Text=answer)
         websocket.enableTrace(False)
-        WSUrl = text_to_speech.create_url()
+        WSUrl = t2s.create_url()
         WS = websocket.WebSocketApp(WSUrl, on_message=text_to_speech_on_message, on_error=text_to_speech_on_error, on_close=text_to_speech_on_close)
         WS.on_open = text_to_speech_on_open
         WS.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
-
-        time2 = datetime.now()
-        print("text to audio(s):", time2-time1)
         
-        pcm2wav("answer.pcm", "answer.wav")
-        os.remove("answer.pcm")
+        pcm2wav(AI_answer_pcm, "answer.wav")
+        time2 = datetime.now()
+        with open(log_name, 'a', encoding='utf-8') as log_file:
+            log_file.write("text_to_speech takes " + str(time2-time1) + "\n")
+            log_file.write("Generate answer.wav" + "\n\n")
+        print("#########  Over ##########")
+        
+        os.remove(AI_answer_pcm)
         os.remove("output.pcm")
 
         finally_result = ""
+    delete_files('./log')
