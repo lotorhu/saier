@@ -55,7 +55,10 @@ SPARKAI_API_KEY = '4e3ef72816c90cefb2e3772dff82052a'
 SPARKAI_DOMAIN = 'generalv3.5'
 
 finally_result = ""
+AI_answer_pcm = './answer.pcm'
 
+# This function is used to transfer .pcm to .wav
+# param: channels 信道数 bits 采样位 sample_rate 采样率
 def pcm2wav(pcm_file, wav_file, channels=1, bits=16, sample_rate=16000):
     pcmf = open(pcm_file, 'rb')
     pcmdata = pcmf.read()
@@ -71,9 +74,13 @@ def pcm2wav(pcm_file, wav_file, channels=1, bits=16, sample_rate=16000):
     wavfile.writeframes(pcmdata)
     wavfile.close()
 
-class Ws_text_to_audio(object):
-    # 初始化
+# This class tries converting text to speech.
+# The bits have to be 8k or 18k
+# The file's format has to be pcm、mp3、speex（8k）、speex-wb（16k）
+# The length of text should be less than 8000 bytes(About 2000 characters)
+class text_to_speech(object):
     def __init__(self, APPID, APIKey, APISecret, Text):
+        # Get the parameters: APPID, APIKey, APISecret are used to authorized, while the text will be converted to audio.
         self.APPID = APPID
         self.APIKey = APIKey
         self.APISecret = APISecret
@@ -120,7 +127,7 @@ class Ws_text_to_audio(object):
         # print('websocket url :', url)
         return url
 
-def SS_on_message(ws, message):
+def text_to_speech_on_message(ws, message):
     try:
         message =json.loads(message)
         code = message["code"]
@@ -137,7 +144,7 @@ def SS_on_message(ws, message):
             print("sid:%s call error:%s code is:%s" % (sid, errMsg, code))
         else:
 
-            with open('./answer.pcm', 'ab') as f:
+            with open(AI_answer_pcm, 'ab') as f:
                 f.write(audio)
 
     except Exception as e:
@@ -146,32 +153,32 @@ def SS_on_message(ws, message):
 
 
 # 收到websocket错误的处理
-def SS_on_error(ws, error):
+def text_to_speech_on_error(ws, error):
     print("### error:", error)
 
 
 # 收到websocket关闭的处理
-def SS_on_close(ws):
+def text_to_speech_on_close(ws,a,b):
     print("### closed ###")
 
 
 # 收到websocket连接建立的处理
-def SS_on_open(ws):
+def text_to_speech_on_open(ws):
     def run(*args):
-        d = {"common": WS_TEXT_TO_AUDIO.CommonArgs,
-             "business": WS_TEXT_TO_AUDIO.BusinessArgs,
-             "data": WS_TEXT_TO_AUDIO.Data,
+        d = {"common": text_to_speech.CommonArgs,
+             "business": text_to_speech.BusinessArgs,
+             "data": text_to_speech.Data,
              }
-       # print("WS_TEXT_TO_AUDIO.Data", WS_TEXT_TO_AUDIO.Data)
+       # print("text_to_speech.Data", text_to_speech.Data)
         d = json.dumps(d)
         print("------>开始发送文本数据")
         ws.send(d)
-        if os.path.exists('./answer.pcm'):
-            os.remove('./answer.pcm')
+        if os.path.exists(AI_answer_pcm):
+            os.remove(AI_answer_pcm)
 
     thread.start_new_thread(run, ())
 
-class Ws_Param(object):
+class speech_to_text(object):
     # 初始化
     def __init__(self, APPID, APIKey, APISecret, AudioFile):
         self.APPID = APPID
@@ -219,7 +226,7 @@ class Ws_Param(object):
 
 
 # 收到websocket消息的处理
-def on_message(ws, message):
+def speech_to_text_on_message(ws, message):
     global finally_result
     try:
         code = json.loads(message)["code"]
@@ -235,31 +242,29 @@ def on_message(ws, message):
             for i in data:
                 for w in i["cw"]:
                     result += w["w"]
+            # data是网站接收到声音后，传回来的包括翻译文本的json文件，其中result则是文本
+            # 这里由于使用流式传输，所以需要把所有的result叠加在一起放在finally_result
             finally_result += str(result)
             print("sid:%s call success!,data is:%s" % (sid, json.dumps(data, ensure_ascii=False)))
     except Exception as e:
         print("receive msg,but parse exception:", e)
 
-
-
 # 收到websocket错误的处理
-def on_error(ws, error):
+def speech_to_text_on_error(ws, error):
     print("### error:", error)
 
-
 # 收到websocket关闭的处理
-def on_close(ws,a,b):
+def speech_to_text_on_close(ws,a,b):
     print("### closed ###")
 
-
 # 收到websocket连接建立的处理
-def on_open(ws):
+def speech_to_text_on_open(ws):
     def run(*args):
         frameSize = 8000  # 每一帧的音频大小
         intervel = 0.04  # 发送音频间隔(单位:s)
         status = STATUS_FIRST_FRAME  # 音频的状态信息，标识音频是第一帧，还是中间帧、最后一帧
 
-        with open(wsParam.AudioFile, "rb") as fp:
+        with open(speech_to_text.AudioFile, "rb") as fp:
             while True:
                 buf = fp.read(frameSize)
                 # 文件结束
@@ -270,8 +275,8 @@ def on_open(ws):
                 # appid 必须带上，只需第一帧发送
                 if status == STATUS_FIRST_FRAME:
 
-                    d = {"common": wsParam.CommonArgs,
-                         "business": wsParam.BusinessArgs,
+                    d = {"common": speech_to_text.CommonArgs,
+                         "business": speech_to_text.BusinessArgs,
                          "data": {"status": 0, "format": "audio/L16;rate=16000",
                                   "audio": str(base64.b64encode(buf), 'utf-8'),
                                   "encoding": "raw"}}
@@ -298,14 +303,16 @@ def on_open(ws):
 
     thread.start_new_thread(run, ())
 
-def Monitor_MIC(th, filename, rate=16000):
+# recording audio
+def Monitor_MIC(th, filename, stopBit, rate=16000):
     CHUNK = 512
-    FORMAT = pyaudio.paInt16
-    CHANNELS = 1
+    FORMAT = pyaudio.paInt16 # 音频格式
+    CHANNELS = 1 # 声道数
     RATE = rate  # 使用传入的采样率
-    PCM_OUTPUT_FILENAME = filename + ".pcm"
+    PCM_OUTPUT_FILENAME = filename + ".pcm" # 输出文件名
     p = pyaudio.PyAudio()
     
+    # 初始化 PyAudio 对象并打开音频流
     stream = p.open(format=FORMAT,
                     channels=CHANNELS,
                     rate=RATE,
@@ -314,7 +321,9 @@ def Monitor_MIC(th, filename, rate=16000):
     
     frames = []
     frames2 = []
-    
+    # 循环读取麦克风输入，并将数据存储在 frames 列表中。 将读取的数据转换为 numpy 数组，并找到最大值 temp。
+    # 如果 temp 超过阈值 th，则进入录音模式。 在录音模式中，继续读取音频数据并存储到 frames2 列表中。
+    # 如果连续 less 个循环检测到的音频信号低于阈值，则认为录音结束。
     while True:
         for _ in range(5):
             data = stream.read(CHUNK)
@@ -341,12 +350,13 @@ def Monitor_MIC(th, filename, rate=16000):
                     less.append(-1)
                     print("below threshold, counting:", less)
                     
-                    if len(less) == 3:#修改th以及less可控制等待时间
+                    if len(less) == stopBit:#修改th以及less可控制等待时间
                         break
                 else:
                     less = []
             break
     
+    # 停止并关闭音频流，终止 PyAudio 对象，将录音数据保存为 pcm 文件
     stream.stop_stream()
     stream.close()
     p.terminate()
@@ -379,14 +389,14 @@ if __name__ == "__main__":
     while 1:
         print("######### Say Someting! #########")
         time1 = datetime.now()
-        Monitor_MIC(th=1000, filename="output", rate=16000)
-        wsParam = Ws_Param(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
+        Monitor_MIC(th=1000, filename="output", stopBit=3, rate=16000)
+        speech_to_text = speech_to_text(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
                             APIKey=SPARKAI_API_KEY,
                             AudioFile=r'output.pcm')
         websocket.enableTrace(False)
-        wsUrl = wsParam.create_url()
-        ws = websocket.WebSocketApp(wsUrl, on_message=on_message, on_error=on_error, on_close=on_close)
-        ws.on_open = on_open
+        wsUrl = speech_to_text.create_url()
+        ws = websocket.WebSocketApp(wsUrl, on_message = speech_to_text_on_message, on_error = speech_to_text_on_error, on_close = speech_to_text_on_close)
+        ws.on_open = speech_to_text_on_open
         ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
         time2 = datetime.now()
         print("audio to text(s):", time2-time1)
@@ -397,14 +407,13 @@ if __name__ == "__main__":
         print("AI respond(s):", time1-time2)
         print("answer",answer)
 
-
-        WS_TEXT_TO_AUDIO = Ws_text_to_audio(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
+        text_to_speech = text_to_speech(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
                        APIKey=SPARKAI_API_KEY,
                        Text=answer)
         websocket.enableTrace(False)
-        WSUrl = WS_TEXT_TO_AUDIO.create_url()
-        WS = websocket.WebSocketApp(WSUrl, on_message=SS_on_message, on_error=SS_on_error, on_close=SS_on_close)
-        WS.on_open = SS_on_open
+        WSUrl = text_to_speech.create_url()
+        WS = websocket.WebSocketApp(WSUrl, on_message=text_to_speech_on_message, on_error=text_to_speech_on_error, on_close=text_to_speech_on_close)
+        WS.on_open = text_to_speech_on_open
         WS.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
 
         time2 = datetime.now()
