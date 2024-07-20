@@ -34,11 +34,19 @@ from wsgiref.handlers import format_date_time
 from datetime import datetime
 from time import mktime
 import _thread as thread
+import pyaudio
+import numpy as np
 
 STATUS_FIRST_FRAME = 0  # 第一帧的标识
 STATUS_CONTINUE_FRAME = 1  # 中间帧标识
 STATUS_LAST_FRAME = 2  # 最后一帧的标识
 
+#星火认知大模型调用秘钥信息，请前往讯飞开放平台控制台（https://console.xfyun.cn/services/bm35）查看
+SPARKAI_APP_ID = 'f6282405'
+SPARKAI_API_SECRET = 'MDgzM2MxOTE4MTg2OTJmYjk1ODI4Nzgx'
+SPARKAI_API_KEY = '4e3ef72816c90cefb2e3772dff82052a'
+
+finally_result = ""
 
 class Ws_Param(object):
     # 初始化
@@ -89,6 +97,7 @@ class Ws_Param(object):
 
 # 收到websocket消息的处理
 def on_message(ws, message):
+    global finally_result
     try:
         code = json.loads(message)["code"]
         sid = json.loads(message)["sid"]
@@ -103,6 +112,7 @@ def on_message(ws, message):
             for i in data:
                 for w in i["cw"]:
                     result += w["w"]
+            finally_result += str(result)
             print("sid:%s call success!,data is:%s" % (sid, json.dumps(data, ensure_ascii=False)))
     except Exception as e:
         print("receive msg,but parse exception:", e)
@@ -165,17 +175,76 @@ def on_open(ws):
 
     thread.start_new_thread(run, ())
 
+def Monitor_MIC(th, filename, rate=16000):
+    CHUNK = 512
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 1
+    RATE = rate  # 使用传入的采样率
+    PCM_OUTPUT_FILENAME = filename + ".pcm"
+    p = pyaudio.PyAudio()
+    
+    stream = p.open(format=FORMAT,
+                    channels=CHANNELS,
+                    rate=RATE,
+                    input=True,
+                    frames_per_buffer=CHUNK)
+    
+    frames = []
+    frames2 = []
+    
+    while True:
+        for _ in range(5):
+            data = stream.read(CHUNK)
+            frames.append(data)
+        
+        audio_data = np.frombuffer(data, dtype=np.int16)
+        temp = np.max(audio_data)
+        
+        if temp > th:
+            print("detected a signal")
+            print('current threshold:', temp)
+            less = []
+            
+            while True:
+                print("recording")
+                for _ in range(30):
+                    data2 = stream.read(CHUNK)
+                    frames2.append(data2)
+                
+                audio_data2 = np.frombuffer(data2, dtype=np.int16)
+                temp2 = np.max(audio_data2)
+                
+                if temp2 < th:
+                    less.append(-1)
+                    print("below threshold, counting:", less)
+                    
+                    if len(less) == 3:#修改th以及less可控制等待时间
+                        break
+                else:
+                    less = []
+            break
+    
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+    
+    if frames2:
+        with open(PCM_OUTPUT_FILENAME, 'wb') as f:
+            f.write(b''.join(frames2))
 
 if __name__ == "__main__":
     # 测试时候在此处正确填写相关信息即可运行
-    time1 = datetime.now()
-    wsParam = Ws_Param(APPID='xxxxx', APISecret='xxxxx',
-                       APIKey='xxxxx',
-                       AudioFile=r'xxxxx')
-    websocket.enableTrace(False)
-    wsUrl = wsParam.create_url()
-    ws = websocket.WebSocketApp(wsUrl, on_message=on_message, on_error=on_error, on_close=on_close)
-    ws.on_open = on_open
-    ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
-    time2 = datetime.now()
-    print(time2-time1)
+    while 1:
+        time1 = datetime.now()
+        Monitor_MIC(th=1000, filename="output", rate=16000)
+        wsParam = Ws_Param(APPID=SPARKAI_APP_ID, APISecret=SPARKAI_API_SECRET,
+                            APIKey=SPARKAI_API_KEY,
+                            AudioFile=r'output.pcm')
+        websocket.enableTrace(False)
+        wsUrl = wsParam.create_url()
+        ws = websocket.WebSocketApp(wsUrl, on_message=on_message, on_error=on_error, on_close=on_close)
+        ws.on_open = on_open
+        ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+        time2 = datetime.now()
+        print("finally_result",finally_result)
+        print(time2-time1)
