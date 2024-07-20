@@ -9,7 +9,7 @@ But in a real application such stream of chunks may be aquired from some other s
 gRPC protocol details could be find in audio2face.proto
 """
 
-import sys
+#import sys
 import time
 
 import audio2face_pb2
@@ -105,9 +105,9 @@ def main():
     gRPC protocol details could be find in audio2face.proto
     """
 
-    if len(sys.argv) < 3:
-        print("Format: python test_client.py PATH_TO_WAV INSTANCE_NAME")
-        return
+    # if len(sys.argv) < 3:
+    #     print("Format: python test_client.py PATH_TO_WAV INSTANCE_NAME")
+    #     return
 
     # Sleep time emulates long latency of the request
     sleep_time = 2.0  # ADJUST
@@ -116,10 +116,10 @@ def main():
     url = "localhost:50051"  # ADJUST
 
     # Local input WAV file path
-    audio_fpath = sys.argv[1]
+    audio_fpath = '../answer.wav'
 
     # Prim path of the Audio2Face Streaming Audio Player on the stage (were to push the audio data)
-    instance_name = sys.argv[2]
+    instance_name = '/World/audio2face/PlayerStreaming'
 
     data, samplerate = soundfile.read(audio_fpath, dtype="float32")
 
