@@ -398,8 +398,13 @@ def AI_responder():
         spark_api_secret=SPARKAI_API_SECRET,
         spark_llm_domain=SPARKAI_DOMAIN,
         streaming=False,
+        max_tokens=60,
     )
     messages = [ChatMessage(
+    role="system",
+    content="你是一个唐诗宋词爱好者，你所有的回复都引用自古代诗词",
+    ),
+    ChatMessage(
         role="user",
         content=finally_result
     )]
